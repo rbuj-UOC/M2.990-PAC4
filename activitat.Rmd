@@ -1,0 +1,1179 @@
+---
+title: Activitat 4
+subtitle: "Anàlisi estadística"
+subject: "Màster en Ciència de Dades"
+author: "Robert Buj"
+date: "16/01/2026"
+keywords:
+  - "Preprocessament de dades"
+  - "Contrasts d'hipòtesis"
+  - "Regressió"
+  - "ANOVA"
+output:
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: xelatex
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    highlight: tango
+toc-title: "Taula de continguts"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE, error = FALSE, message = FALSE,
+  cache = TRUE, # Activa la memòria cau
+  cache.lazy = FALSE, # Desactiva la càrrega diferida de la memòria cau
+  # Opcions per a les figures
+  fig.align = "center"
+)
+suppressPackageStartupMessages({
+  library(car)
+  library(caret)
+  library(corrplot)
+  library(data.table)
+  library(dplyr)
+  library(ggplot2)
+  library(kableExtra)
+  library(knitr)
+  library(nortest)
+  library(pROC)
+  library(tidyr)
+})
+set.seed(1234) # Per a la reproductibilitat
+```
+
+\newpage
+\renewcommand{\arraystretch}{1.5}
+
+# Preprocessament
+
+## Nom de les variables
+
+**Enunciat:**
+
+Carregueu el fitxer de dades "Findata.csv".
+
+**Resposta:**
+
+```{r llegir-dades, attr.source=".numberLines"}
+fin_df <- fread(
+  "data/Findata.csv", # Camí al fitxer
+  dec = ".", # Caràcter decimal
+  data.table = FALSE # Data frame de R (no data.table)
+)
+```
+
+**Enunciat:**
+
+Comproveu els tipus de dades de les variables.
+
+**Resposta:**
+
+```{r tipus-dades, attr.source=".numberLines"}
+sapply(fin_df, class)
+```
+
+**Enunciat:**
+
+Elimineu els punts al final dels noms de les variables.
+
+**Resposta:**
+
+```{r eliminar-punts, attr.source=".numberLines"}
+# Índexs dels noms de les variables amb punt al final
+replacement_indexes <- which(grepl("\\.$", names(fin_df)))
+# Mostra els noms de les variables abans d'eliminar el punt al final
+names(fin_df)[replacement_indexes]
+# Elimina el punt al final dels noms de les variables
+names(fin_df)[replacement_indexes] <- gsub(
+  "\\.$", "", names(fin_df)[replacement_indexes]
+)
+# Mostra els noms de les variables després d'eliminar el punt al final
+names(fin_df)[replacement_indexes]
+```
+
+**Enunciat:**
+
+Substituïu els punts dins del nom de la variable per un guió baix. Si hi ha dos
+punts seguits, reemplaceu-los per un únic guió baix.
+
+**Resposta:**
+
+```{r dos-punts, attr.source=".numberLines"}
+# Índexs dels noms de les variables amb un o dos punts al mig
+replacement_indexes <- which(grepl("\\.{1,2}", names(fin_df)))
+# Mostra els noms de les variables abans de la substitució
+names(fin_df)[replacement_indexes]
+# Fes la substitució
+names(fin_df)[replacement_indexes] <- gsub(
+  "\\.{1,2}", "_", names(fin_df)[replacement_indexes],
+  perl = TRUE
+)
+# Mostra els noms de les variables després de la substitució
+names(fin_df)[replacement_indexes]
+```
+
+**Enunciat:**
+
+Substituïu els guions baixos seguits per un únic guió baix.
+
+**Resposta:**
+
+```{r guions-seguits, attr.source=".numberLines"}
+# Índexs dels noms de les variables amb dos o més guions baixos seguits
+replacement_indexes <- which(grepl("_{2,}", names(fin_df)))
+# Mostra els noms de les variables abans de la substitució
+names(fin_df)[replacement_indexes]
+# Fes la substitució
+names(fin_df)[replacement_indexes] <- gsub(
+  "_{2,}", "_", names(fin_df)[replacement_indexes],
+  perl = TRUE
+)
+# Mostra els noms de les variables després de la substitució
+names(fin_df)[replacement_indexes]
+```
+
+**Enunciat:**
+
+Comproveu que no hi hagi dos guions baixos seguits.
+
+**Resposta:**
+
+```{r comprovar-dos-guions, attr.source=".numberLines"}
+any(grepl("__", names(fin_df)))
+```
+
+## Variables `Weight_kg` i `Height_m`
+
+Consulteu els tipus de dades de les variables `Weight_kg` i `Height_m`. Si és
+necessari, apliqueu les transformacions apropiades. Esbrineu possibles
+inconsistències en els valors de les variables. En cas que existeixin
+inconsistències, corregiu-les. Definiu les variables com numèriques
+
+**Nota**: Si els valors de Weight_kg estan en lliures s'han de passar a kg. Si
+els valors de `Height_m` estan en peus i polzades s'han de passar a metres.
+Considereu els següents factors de conversió: 1 kg = 2.20 lb i 1 mt = 39.37
+polzades, 12 polzades = 1 peu.
+
+**Resposta:**
+
+```{r tipus-Weight-Height, attr.source=".numberLines"}
+# Tipus de les variables Weight_kg i Height_m
+sapply(fin_df[c("Weight_kg", "Height_m")], class)
+# Conversió de Weight_kg de lliures a kg
+fin_df$Weight_kg <- ifelse(
+  grepl("lb$", fin_df$Weight_kg),
+  as.numeric(gsub("lb$", "", fin_df$Weight_kg)) / 2.20,
+  fin_df$Weight_kg
+)
+# Conversió de Height_m de peus i polzades a metres
+fin_df$Height_m <- ifelse(
+  grepl("'", fin_df$Height_m),
+  {
+    feet_inches <- strsplit(gsub('"$', "", fin_df$Height_m), "'")
+    sapply(feet_inches, function(x) {
+      feet <- as.numeric(x[1])
+      inches <- as.numeric(x[2])
+      total_inches <- (feet * 12) + inches
+      total_inches / 39.37
+    })
+  },
+  fin_df$Height_m
+)
+# Conversió de les variables Weight_kg i Height_m a numèriques
+fin_df$Weight_kg <- as.numeric(fin_df$Weight_kg)
+fin_df$Height_m <- as.numeric(fin_df$Height_m)
+# Tipus de les variables Weight_kg i Height_m després de la conversió
+sapply(fin_df[c("Weight_kg", "Height_m")], class)
+# Resum estadístic de les variables Weight_kg i Height_m
+summary(fin_df[c("Weight_kg", "Height_m")])
+```
+
+## Valors absents i atípics
+
+Determineu el nombre de valors absents i el nombre de valors atípics de les
+variables `Weight_kg` i `Height_m`.
+
+**Resposta:**
+
+```{r valors-absents-atipics, attr.source=".numberLines"}
+# Nombre de valors absents
+n_na_weight <- sum(is.na(fin_df$Weight_kg))
+n_na_height <- sum(is.na(fin_df$Height_m))
+kable(
+  data.frame(
+    Variable = c("Weight_kg", "Height_m"),
+    Valors_absents = c(n_na_weight, n_na_height)
+  ),
+  caption = "Nombre de valors absents",
+  col.names = c("Variable", "Valors absents")
+) |>
+  kable_styling(
+    "striped",
+    latex_options = c("striped", "scale_down", "repeat_header"),
+    position = "center",
+    full_width = FALSE
+  )
+```
+
+Per determinar els valors atípics, primer relacionem l'altura i el pes amb
+l'índex de massa corporal (IMC), que es calcula com el pes en quilograms
+dividit per l'altura en metres al quadrat.
+
+```{r imc, attr.source=".numberLines"}
+# Càlcul de l'índex de massa corporal (IMC)
+imc <- fin_df$Weight_kg / (fin_df$Height_m^2)
+```
+
+A través dels diagrames de caixa, visualitzem els valors atípics de l'IMC, de
+l'altura i del pes.
+
+```{r diagrama-caixa, attr.source=".numberLines"}
+# Diagrama de caixa de l'IMC, de l'altura i del pes
+par(mfrow = c(1, 3))
+boxplot(
+  imc,
+  main = "Diagrama de caixa de l'IMC",
+  ylab = "IMC"
+)
+boxplot(
+  fin_df$Height_m,
+  main = "Diagrama de caixa de l'altura",
+  ylab = "Height_m (m)"
+)
+boxplot(
+  fin_df$Weight_kg,
+  main = "Diagrama de caixa del pes",
+  ylab = "Weight_kg (kg)"
+)
+par(mfrow = c(1, 1))
+```
+
+A continuació, calculem el nombre de valors atípics de l'IMC, de l'altura i del
+pes utilitzant el criteri de l'interval interquartílic (IQR). Un valor es
+considera atípic si és inferior a Q1 - 1.5 * IQR o superior a Q3 + 1.5 * IQR,
+on Q1 i Q3 són el primer i tercer quartil, respectivament.
+
+En el cas de l'IMC:
+
+```{r valors-atipics-imc, attr.source=".numberLines"}
+q1 <- quantile(imc, 0.25, na.rm = TRUE)
+q3 <- quantile(imc, 0.75, na.rm = TRUE)
+iqr <- q3 - q1
+lower_bound_imc <- q1 - 1.5 * iqr
+upper_bound_imc <- q3 + 1.5 * iqr
+# Nombre de valors atípics inferiors de l'IMC
+n_lower_bound_imc <- sum(imc < lower_bound_imc, na.rm = TRUE)
+# Nombre de valors atípics superiors de l'IMC
+n_upper_bound_imc <- sum(imc > upper_bound_imc, na.rm = TRUE)
+```
+
+En el cas del pes:
+
+```{r valors-atipics-pes, attr.source=".numberLines"}
+q1_weight <- quantile(fin_df$Weight_kg, 0.25, na.rm = TRUE)
+q3_weight <- quantile(fin_df$Weight_kg, 0.75, na.rm = TRUE)
+iqr_weight <- q3_weight - q1_weight
+lower_bound_weight <- q1_weight - 1.5 * iqr_weight
+upper_bound_weight <- q3_weight + 1.5 * iqr_weight
+# Nombre de valors atípics inferiors del pes
+n_lower_bound_weight <- sum(fin_df$Weight_kg < lower_bound_weight, na.rm = TRUE)
+# Nombre de valors atípics superiors del pes
+n_upper_bound_weight <- sum(fin_df$Weight_kg > upper_bound_weight, na.rm = TRUE)
+```
+
+En el cas de l'altura:
+
+```{r valors-atipics-altura, attr.source=".numberLines"}
+q1_height <- quantile(fin_df$Height_m, 0.25, na.rm = TRUE)
+q3_height <- quantile(fin_df$Height_m, 0.75, na.rm = TRUE)
+iqr_height <- q3_height - q1_height
+lower_bound_height <- q1_height - 1.5 * iqr_height
+upper_bound_height <- q3_height + 1.5 * iqr_height
+# Nombre de valors atípics inferiors de l'altura
+n_lower_bound_height <- sum(fin_df$Height_m < lower_bound_height, na.rm = TRUE)
+# Nombre de valors atípics superiors de l'altura
+n_upper_bound_height <- sum(fin_df$Height_m > upper_bound_height, na.rm = TRUE)
+```
+
+En la taula següent es mostra el nombre de valors atípics de l'IMC, de l'altura
+i del pes.
+
+```{r resum-valors-atipics, attr.source=".numberLines"}
+outliers_count <- data.frame(
+  Variable = c("IMC", "Weight_kg", "Height_m"),
+  lower_outliers = c(
+    n_lower_bound_imc, n_lower_bound_weight, n_lower_bound_height
+  ),
+  upper_outliers = c(
+    n_upper_bound_imc, n_upper_bound_weight, n_upper_bound_height
+  )
+)
+kable(
+  outliers_count,
+  caption = "Nombre de valors atípics",
+  col.names = c(
+    "Variable", "Valors atípics inferiors", "Valors atípics superiors"
+  )
+) |>
+  kable_styling(
+    "striped",
+    latex_options = c("striped", "scale_down", "repeat_header"),
+    position = "center",
+    full_width = FALSE
+  )
+```
+
+# Estadística inferencial
+## Contrast d'hipòtesi
+
+Podem acceptar que **els homes cremen en promig més calories als entrenaments
+que les dones**? Responeu a la pregunta utilitzant un nivell de confiança del
+97,5%.
+
+**Nota:**
+
+S'han de realitzar els càlculs per comparar mitjanes manualment. No es poden
+usar funcions de R que calculin directament el contrast com a `t.test` o
+similar. Si que es poden usar funcions com `mean`, `sd`, `qnorm`, `pnorm`, `qt`
+i `pt`.
+
+Seguiu els passos que es detallen a continuació.
+
+### Escriviu la hipòtesi nul·la i l'alternativa
+
+**Resposta:**
+
+Hipòtesis nul·la (H~0~):  $\mu_1 = \mu_2$: La mitjana de calories cremades pels
+homes és igual a la mitjana de calories cremades per les dones.
+
+Hipòtesis alternativa (H~1~): $\mu_1 > \mu_2$: La mitjana de calories cremades
+pels homes és major que la mitjana de calories cremades per les dones.
+
+### Justificació del test a aplicar
+
+**Resposta:**
+
+Contrast unilateral per la dreta de dues mostres independents sobre la mitjana,
+amb variàncies desconegudes. Segons el teorema del límit central, podem assumir
+normalitat quan fem un test sobre les mitjanes amb un nombre de mostres gran.
+
+Per veure si podem assumir igualtat de variàncies, fem la prova F d'Snedecor
+(contrast d'homogeneïtat de variàncies):
+
+- Hipòtesis nul·la (H~0~): $\sigma_1^2 = \sigma_2^2$: La variància de calories
+cremades pels homes és igual que la variància de calories cremades per les
+dones.
+- Hipòtesis alternativa (H~1~): $\sigma_1^2 \neq \sigma_2^2$: La variància de
+calories cremades pels homes és diferent a la variància de calories cremades
+per les dones.
+
+```{r prova-F, attr.source=".numberLines"}
+alpha <- 0.025
+# Subconjunts de calories cremades per homes i dones
+calories_homes <- fin_df$Calories_Burned[fin_df$Gender == "Male"]
+calories_dones <- fin_df$Calories_Burned[fin_df$Gender == "Female"]
+# Variances de les dues mostres
+mean1 <- mean(calories_homes)
+mean2 <- mean(calories_dones)
+# Nombre d'elements de les dues mostres
+n1 <- length(calories_homes)
+n2 <- length(calories_dones)
+# Desviacions estàndard de les dues mostres
+s1 <- sd(calories_homes)
+s2 <- sd(calories_dones)
+# F_observed
+fobs <- s1^2 / s2^2
+fcrit_l <- qf(alpha / 2, n1 - 1, n2 - 1)
+fcrit_u <- qf(1 - alpha / 2, n1 - 1, n2 - 1)
+# p-valor
+pvalue <- min(
+  pf(fobs, df1 = n1 - 1, df2 = n2 - 2, lower.tail = FALSE),
+  pf(fobs, df1 = n1 - 1, df2 = n2 - 2)
+) * 2
+# Resultats de la prova F d'Snedecor
+c(fobs, fcrit_l, fcrit_u, pvalue)
+```
+
+El valor de p és `r round(pvalue, 4)`, que és menor de 0.025, per tant rebutgem
+la hipòtesi nul·la i assumim que les variàncies són diferents. Caldrà fer el
+test amb variàncies diferents (t-test de Welch).
+
+### Càlculs
+
+Realitzeu els càlculs de l'estadístic de contrast, valor crític i p valor a un
+nivell de confiança del 97,5%.
+
+**Resposta:**
+
+```{r calculs-test, attr.source=".numberLines"}
+# Estadístic de contrast
+tobs <- (mean1 - mean2) / sqrt((s1^2 / n1) + (s2^2 / n2))
+# Graus de llibertat aproximats
+df <- ((s1^2 / n1) + (s2^2 / n2))^2 /
+  (((s1^2 / n1)^2) / (n1 - 1) + ((s2^2 / n2)^2) / (n2 - 1))
+# Valor crític
+tcrit <- qt(1 - alpha, df)
+# p-valor del test unilateral per la dreta
+calories_burned_pt <- pt(tobs, df = df, lower.tail = FALSE)
+# Resultats del test
+c(tobs, tcrit, calories_burned_pt)
+```
+
+**Off topic:**
+
+Comprovació amb les funcions d'R:
+
+```{r comprovacio-test, attr.source=".numberLines"}
+# test d'homoscedasticitat
+var_test <- var.test(
+  calories_homes, calories_dones,
+  alternative = "two.sided",
+  conf.level = 0.975
+)
+c(var_test$statistic, var_test$p.value)
+if (var_test$p.value < 0.025) {
+  var_equal <- FALSE # Les variàncies no són iguals, es fa el test de Welch
+} else {
+  var_equal <- TRUE # Les variàncies són iguals,
+}
+# Comprovació amb t.test
+t_test_result <- t.test(
+  calories_homes, calories_dones,
+  conf.level = 0.975,
+  alternative = "greater",
+  var.equal = var_equal
+)
+c(t_test_result$statistic, t_test_result$p.value)
+```
+
+### Interpretació del test
+
+**Resposta:**
+
+El valor de p és `r round(calories_burned_pt, 4)`, que és un valor més gran de
+0.025, per tant no rebutgem la hipòtesi nul·la. És a dir, no hi ha prou
+evidència per acceptar que els homes cremen més calories que les dones als
+entrenaments.
+
+# Model de regressió
+## Regressió lineal múltiple
+
+Volem investigar quines variables expliquen el valor de les calories cremades
+(`Calories_Burned`). Estimeu un model de regressió lineal múltiple que tingui
+com a variables explicatives: `Session_Duration_hours`, `Experience_Level`,
+`Workout_Frequency_days_week`, `Height_m`, `Weight_m`, `Gender` i
+`Workout_Type`.
+
+Interpreteu el model lineal ajustat. Com és la qualitat de l'ajust? Interpreteu
+breument la contribució de la variable `Experience_Level` sobre la variable
+depenent.
+
+**Resposta:**
+
+```{r regression-model, attr.source=".numberLines"}
+# Càlcul del model de regressió lineal múltiple
+model <- lm(
+  Calories_Burned ~ Session_Duration_hours + Experience_Level +
+    Workout_Frequency_days_week + Height_m + Weight_kg + Gender +
+    Workout_Type,
+  data = fin_df
+)
+# Resum del model
+summary(model)
+```
+
+Gairebé tote les variables tenen un efecte significatiu en la variable dependent
+(`p-value < 0.05`), excepte `GenderMale` i `Weight_kg`.
+
+El valor de R^2^ ajustat és `r round(summary(model)$adj.r.squared, 4)`, un valor
+molt elevat, indica que el model explica un percentatge molt alt de la
+variabilitat de les calories cremades (`r round(summary(model)$adj.r.squared * 100, 2)` %).
+
+La variable predictora `Experience_Level` té un efecte significatiu en la
+variable dependent (`p-value < 0.05`). En concret, te un efecte positiu, és a
+dir, a mesura que augmenta el nivell d'experiència, augmenten les calories
+cremades durant l'entrenament (`r format(round(coef(summary(model))["Experience_Level", "Estimate"], 2), nsmall = 2)`
+calories cremades per cada nivell d'experiència).
+
+## Multicol·linealitat
+
+Analitzeu possibles problemes de multicol·linealitat (alta correlació entre
+variables explicatives) mitjançant la interpretació de la matriu de correlacions
+de les variables explicatives quantitatives i del factor d'inflació de la
+variància (vif). Es pot utilitzar la funció `vif` de la llibreria `car`.
+
+**Resposta:**
+
+```{r multicollinearity, attr.source=".numberLines"}
+# Matriu de correlacions de les variables explicatives quantitatives
+cor_matrix <- cor(
+  fin_df[c(
+    "Session_Duration_hours", "Workout_Frequency_days_week",
+    "Height_m", "Weight_kg"
+  )],
+  use = "complete.obs"
+)
+cor_matrix
+# Gràfica de la matriu de correlacions
+corrplot(cor_matrix,
+  method = "circle",
+  diag = FALSE,
+  type = "upper",
+  tl.srt = 45,
+  tl.col = "black"
+)
+```
+
+En la gràfica de la matriu de correlacions, podem observar que no hi ha cap
+parella de variables explicatives quantitatives amb una correlació molt alta
+(per exemple, superior a 0.8 o inferior a -0.8), de fet només es mostren dues
+correlacions directes moderades: entre `Session_Duration_hours` i
+`Workout_Frequency_days_week` (`r format(round(cor_matrix["Session_Duration_hours", "Workout_Frequency_days_week"], 2), nsmall = 2)`)
+i entre `Height_m` i `Weight_kg` (`r format(round(cor_matrix["Height_m", "Weight_kg"], 2), nsmall = 2)`).
+Per tant, no sembla haver-hi problemes greus de multicol·linealitat entre les
+variables explicatives quantitatives.
+
+```{r vif, attr.source=".numberLines"}
+# Càlcul del factor d'inflació de la variància (VIF)
+vif(model)
+```
+
+En quant al factor d'inflació de la variància (VIF), si en fixem en l'última
+columna tots els valors són inferiors a 5 (potencialment problemàtic) i propers
+a 1 (absència de col·linealitat). Això indica que no hi ha problemes de
+multicol·linealitat entre les variables.
+
+## Anàlisi visual dels residus
+
+Analitzeu gràficament els residus del model per comprovar la linealitat,
+l'homoscedasticitat, la normalitat i la presència d'outliers. A quina conclusió
+arribeu?
+
+**Resposta:**
+
+```{r analisi-residus, attr.source=".numberLines"}
+# Gràfics de diagnòstic del model
+par(mfrow = c(1, 2))
+plot(model, which = 1, main = "Model Fit")
+plot(model, which = 2, main = "Q-Q Plot")
+par(mfrow = c(1, 1))
+```
+
+La gràfica de "Residuals vs Fitted" mostra una clara desviació respecte a la
+línia horitzontal, especialment als extrems, on la corba vermella indica una
+tendència no lineal. Aquest comportament suggereix que la relació entre les
+variables explicatives i la variable resposta no és estrictament lineal. En
+quant a la homoscedasticitat, la mateixa gràfica mostra un patró en forma
+d'embut, on la variabilitat augmenta amb els valors ajustats. Aquest patró és
+típic d'heteroscedasticitat, és a dir, la variància dels errors no és constant.
+
+En la gràfica "Q-Q Residuals", al centre se segueix la diagonal, mentre que a
+les cues se separen una mica, sobretot a la dreta. Aquesta desviació indica que
+els residus no segueixen una distribució normal perfecta, especialment en els
+extrems.
+
+La presència d'outliers es pot observar en les dues gràfiques. En la primera,
+hi ha punts que es troben lluny de la línia horitzontal, i en la segona, hi ha
+punts que es desvien significativament de la línia diagonal.
+
+En conclusió, els gràfics de diagnòstic indiquen que el model de regressió
+lineal múltiple presenta problemes de no linealitat, heteroscedasticitat,
+desviació de la normalitat i presència d'outliers.
+
+## Regressió logística
+
+Ajusteu un model predictiu basat en la regressió logística per predir la
+probabilitat de ser una persona sense experiència en fitness.
+
+A partir de la variable `Experience_Level`, classifiqueu les persones sense
+experiència (valor 1) en comparació a la resta (valor 2 o 3). Com a regressors
+considereu les mateixes variables que en apartat anterior. Nota:
+`Calories_Burned` ara és una variable explicativa del model de regressió.
+
+Mostreu el resultat del model i interpreteu-lo en termes de: quines són les
+variables significatives i com és la qualitat del model.
+
+**Resposta:**
+
+Primer creem la variable binària `Without_Experience`, que val 1 si la persona
+no té experiència (Experience_Level = 1) i 0 altrament.
+
+```{r new-binary-variable, attr.source=".numberLines"}
+# Crear la variable binària
+fin_df$Without_Experience <- ifelse(fin_df$Experience_Level == 1, 1, 0)
+```
+
+Després separem el conjunt de dades en un conjunt d'entrenament (70%) i un de
+prova (30%).
+
+```{r train-test-datasets, attr.source=".numberLines"}
+# Fixem el valor de la llavor per a la reproductibilitat
+set.seed(42)
+# Separació del conjunt de dades en train (70%) i test (30%) de forma aleatòria
+train_indexes <- sample(1:nrow(fin_df), size = 0.7 * nrow(fin_df))
+train_dataset <- fin_df[train_indexes, ]
+test_dataset <- fin_df[-train_indexes, ]
+```
+
+A continuació, ajustem el model de regressió logística.
+
+```{r logistic-model, attr.source=".numberLines"}
+# Model de regressió logística
+logistic_model <- glm(
+  Without_Experience ~ Session_Duration_hours + Workout_Frequency_days_week +
+    Height_m + Weight_kg + Gender + Workout_Type + Calories_Burned,
+  data = train_dataset,
+  family = binomial(link = "logit")
+)
+# Resum del model
+summary(logistic_model)
+```
+
+Les variables significatives en el model de regressió logística són aquelles
+amb un valor de p menor a 0.05.
+
+```{r logistic-significant-variables, attr.source=".numberLines"}
+# Variables significatives (p < 0.05)
+significant_vars <- summary(logistic_model)$coefficients[, "Pr(>|z|)"] < 0.05
+# Elimina l'intercept
+significant_vars <- significant_vars[names(significant_vars) != "(Intercept)"]
+# Noms de les variables significatives
+names(significant_vars)
+```
+
+Per avaluar la qualitat del model, podem utilitzar la corba ROC i l'àrea sota la
+corba (AUC). Un AUC proper a 1 indica un bon model, mentre que un AUC proper a
+0.5 indica un model poc informatiu (entre 0,7 i 0,8 es considera acceptable,
+entre 0,8 i 0,9 és excel·lent, i superior a 0,9 és excepcional).
+
+```{r auc-roc, attr.source=".numberLines"}
+# Prediccions de probabilitats sobre el conjunt de test
+prob_predictions <- predict(
+  logistic_model,
+  newdata = test_dataset,
+  type = "response"
+)
+# Corba ROC
+roc_curve <- roc(test_dataset$Without_Experience, prob_predictions)
+# Plot de la corba ROC i valor AUC
+plot(roc_curve, print.auc = TRUE, main = "ROC Curve", legacy.axes = TRUE)
+abline(a = 0, b = 1, lty = 2, col = "grey")
+# AUC
+auc_value <- auc(roc_curve)
+```
+
+És excepcional perquè té un AUC de `r format(round(auc_value, digits = 4))`.
+Això indica que el model té una bona capacitat de discriminació: distingeix
+força bé entre persones amb i sense experiència. En termes pràctics, quan el
+model compara dues persones a l'atzar (una amb experiència i l'altra sense), hi
+ha una alta probabilitat que assigni una probabilitat més alta de ser sense
+experiència a la persona que realment no té experiència.
+
+## Matriu de confusió
+
+A continuació analitzeu la precisió del model, comparant la predicció del model
+sobre les mateixes dades del conjunt de dades. Assumirem que la predicció del
+model és 1 (Sense experiència) si la probabilitat del model de regressió
+logística és superior o igual a 0.5 i 0 en cas contrari. Calculeu la matriu de
+confusió.
+
+Interpreteu els resultats. Indiqueu els valors de sensibilitat i especificitat
+i interpreteu-los. Es pot utilitzar funció confusionMatrix de la llibreria
+`Caret`.
+
+**Resposta:**
+
+```{r confusion-matrix, attr.source=".numberLines"}
+# Convertir les probabilitats a classes amb un llindar de 0.5
+class_predictions <- ifelse(prob_predictions > 0.5, "Alt", "No Alt")
+class_predictions <- factor(class_predictions, levels = c("No Alt", "Alt"))
+# Convertir la referència a factor amb els mateixos nivells
+reference_factor <- factor(
+  ifelse(test_dataset$Without_Experience == 1, "Alt", "No Alt"),
+  levels = c("No Alt", "Alt")
+)
+# Matriu de confusió
+confusion_matrix <- confusionMatrix(
+  data = class_predictions,
+  reference = reference_factor,
+  positive = "Alt"
+)
+confusion_matrix
+```
+
+La **precisió** del model és del `r format(round(confusion_matrix$overall["Accuracy"], 4))`,
+que indica que el model classifica correctament el `r format(round(confusion_matrix$overall["Accuracy"] * 100, 2), nsmall = 2)` %
+de les persones en el conjunt de dades de prova. El valor de la **sensibilitat**
+és `r format(round(confusion_matrix$byClass["Sensitivity"], 4))`, que indica la
+capacitat del model per identificar correctament les persones sense experiència.
+En aquest cas, el model identifica correctament el `r format(round(confusion_matrix$byClass["Sensitivity"] * 100, 2), nsmall = 2)` %
+de les persones sense experiència. El valor de l'**especificitat** és `r format(round(confusion_matrix$byClass["Specificity"], 4))`,
+que indica la capacitat del model per identificar correctament les persones amb
+experiència. En aquest cas, el model identifica correctament el `r format(round(confusion_matrix$byClass["Specificity"] * 100, 2), nsmall = 2)` %
+de les persones amb experiència.
+
+En conjunt, el model presenta un rendiment equilibrat i raonable per a una
+classificació binària amb un punt de tall del 50 %, ja que tant la sensibilitat
+com l'especificitat són altes, una mica més alta la sensibilitat, la qual cosa
+és desitjable en aquest context si es vol identificar correctament les persones
+sense experiència.
+
+# Anàlisi de la variància (ANOVA) d'un factor
+
+En aquest apartat analitzarem si existeixen diferències significatives en la
+variable `Calories_Burned` en funció del tipus d'entrenament (`Workout_Type`).
+
+## Visualització
+
+Visualitzar les dades per tipus d'entrenament amb un boxplot.
+
+**Resposta:**
+
+```{r boxplot-workout-type, attr.source=".numberLines"}
+# Boxplot de Calories_Burned per Workout_Type
+ggplot(fin_df, aes(x = Workout_Type, y = Calories_Burned)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  labs(
+    title = "Boxplot de Calories_Burned per Workout_Type",
+    x = "Tipus d'entrenament",
+    y = "Calories Cremades"
+  ) +
+  theme_minimal()
+```
+
+En els diagrames de caixa es pot observar que hi ha diferències en la
+distribució de les calories cremades segons el tipus d'entrenament. Per exemple,
+l'entrenament de tipus `HIIT` sembla tenir una mediana més alta de calories
+cremades en comparació amb altres tipus d'entrenament com `Yoga`, `Cardio` i
+`Strength`. A més, hi ha una variabilitat diferent en les calories cremades
+entre els diferents tipus d'entrenament, amb alguns tipus mostrant una
+distribució més ampla que altres. `HIIT` té una variabilitat més gran en les
+calories cremades, mentre que `Yoga` sembla tenir una variabilitat més petita.
+
+## Hipòtesi nul·la i alternativa
+
+Escriviu la hipòtesi nul·la i l'alternativa.
+
+**Resposta:**
+
+- Hipòtesi nul·la (H~0~): No hi ha diferència entre les calories cremades i
+  tipus d'entrenament que es fa.
+- Hipòtesi alternativa (H~1~): Almenys dos grups són diferents en les calories
+  cremades segons el tipus d'entrenament.
+
+## Model
+
+Calculeu l'anàlisi de variància, fent servir la funció `aov` o `lm`. Interpreteu
+el resultat de l'anàlisi, tenint en compte els valors: `Sum Sq`, `Mean Sq`, `F`
+i `Pr(> F)`.
+
+**Resposta:**
+
+```{r anova-model, attr.source=".numberLines"}
+# Càlcul de l'ANOVA d'un factor
+anova_model <- aov(Calories_Burned ~ Workout_Type, data = fin_df)
+# Resum de l'ANOVA
+summary(anova_model)
+```
+
+La suma de quadrats entre grups (Sum Sq) indica variabilitat explicada per les
+diferències entre grups (Sum Sq del factor), i la variabilitat no explicada: la
+variabilitat interna dins dels grups (Sum Sq residual). Com més gran sigui
+`Sum Sq del factor` en relació amb la total, més probable és que hi hagi
+diferències reals entre grups. En aquest cas, la `Sum Sq del factor` és
+`r format(round(summary(anova_model)[[1]]["Workout_Type", "Sum Sq"], 4), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`,
+mentre que la
+`Sum Sq residual` és `r format(round(summary(anova_model)[[1]]["Residuals", "Sum Sq"], 4), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`.
+Això indica que una part significativa de la variabilitat total en les calories
+cremades es pot atribuir a les diferències entre els tipus d'entrenament.
+
+`Mean Sq` és la mitjana de les sumes de quadrats, que es calcula $MS=\frac{Sum Sq}{df}$,
+on $df$ són els graus de llibertat associats a cada component. En aquest cas,
+el `Mean Sq del factor` $(MS_{Between})$ és
+`r format(round(summary(anova_model)[[1]]["Workout_Type", "Mean Sq"], 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`,
+mentre que la `Mean Sq residual` $(MS_{Within})$ és
+`r format(round(summary(anova_model)[[1]]["Residuals", "Mean Sq"], 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`.
+
+El valor de l'estadístic $F=\frac{MS_{Between}}{MS_{Within}}$ és
+`r format(round(summary(anova_model)[[1]]["Workout_Type", "F value"], 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`.,
+com que aquest valor és gran, indica que hi ha una gran variabilitat entre els
+grups en comparació amb la variabilitat dins dels grups, altrament seria gairebé
+igual a 1.
+
+El valor de p associat a l'estadístic F és $<2e-16$, menor que 0.05, per tant
+rebutgem la hipòtesi nul·la i acceptem l'alternativa. Això indica que hi ha
+diferències significatives en les calories cremades segons el tipus
+d'entrenament.
+
+## Efectes dels nivells del factor
+
+Proporcioneu l'estimació de l'efecte dels nivells del factor `Workout_Type`.
+
+**Resposta:**
+
+En el model ANOVA el valor p és petit (< 0.05), això indica necessitem el model
+complet amb els efectes dels nivells del factor per explicar les diferències en
+les calories cremades segons el tipus d'entrenament.
+
+```{r efectes-nivell-factor, attr.source=".numberLines"}
+# Estimació dels efectes dels nivells del factor Workout_Type
+effects <- model.tables(anova_model, "means")$tables$Workout_Type
+effects
+```
+
+## Interpretació dels resultats
+
+Interpreteu els resultats obtinguts en els apartats anteriors.
+
+**Resposta:**
+
+L'anàlisi de variància (ANOVA) indica que hi ha diferències significatives en
+les calories cremades segons el tipus d'entrenament realitzat. El valor de p és
+menor que 0.05, la qual cosa ens porta a rebutjar la hipòtesi nul·la i acceptar
+que almenys dos tipus d'entrenament són diferents en termes de calories cremades.
+
+Els efectes estimats dels nivells del factor `Workout_Type` mostren com cada
+tipus d'entrenament afecta les calories cremades en comparació amb la mitjana
+global. Per exemple, l'entrenament de tipus `HIIT` té un efecte positiu més
+elevat (`r format(round(effects["HIIT"], 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`),
+indicant que aquest tipus d'entrenament està associat amb un augment
+significatiu en les calories cremades en comparació amb altres tipus
+d'entrenament.
+
+## Adequació del model
+
+Mostreu visualment l'adequació del model ANOVA. Verificar els supòsits de
+normalitat i homoscedasticitat. Podeu fer servir `plot` sobre el model ANOVA
+calculat.
+
+En cas de trobar diferències a les mitjanes, cal fer anàlisis post hoc on es fan
+les comparacions múltiples de tots els parells de mitjanes possibles. Si
+tinguéssim homogeneïtat de variàncies, prova de Scheffé si les variàncies no són
+iguals optar per la prova T2 de Tamhane.
+
+**Resposta:**
+
+```{r adequacio-model-anova, attr.source=".numberLines"}
+# Gràfics de diagnòstic del model ANOVA
+par(mfrow = c(1, 2))
+plot(anova_model, which = 1, main = "Model Fit")
+plot(anova_model, which = 2, main = "Q-Q Plot")
+par(mfrow = c(1, 1))
+```
+
+En l'apartat anterior hem vist que hi ha diferències significatives en les
+calories cremades segons el tipus d'entrenament. Ara, per determinar quins tipus
+d'entrenament són diferents entre si, abans de realitzar les proves post hoc,
+hem de verificar els supòsits de normalitat i homoscedasticitat. Això
+s'analitzarà en els següents subapartats. 
+
+### Normalitat dels residus
+
+Interpreteu la normalitat dels residus a partir del gràfic Normal Q-Q que heu
+mostrat a l'apartat anterior i verifica amb una prova de contrast
+(Anderson-Darling). Tot i això, recordem que l'ANOVA és una prova robusta davant
+la violació del supòsit de normalitat si tenim n ≥ 30 gràcies al Teorema del
+Límit Central.
+
+**Resposta:**
+
+```{r anderson-darling, attr.source=".numberLines"}
+# Residus del model ANOVA
+res <- residuals(anova_model)
+# Prova d'Anderson-Darling per normalitat dels residus
+ad_test <- ad.test(res)
+ad_test
+```
+
+El valor p de la prova d'Anderson-Darling és $< 2.2e-16$, que és menor que 0.05,
+per tant rebutgem la hipòtesi nul·la i assumim que els residus no segueixen una
+distribució normal. A més, el valor de l'estadístic d'Anderson-Darling és
+`r format(round(ad_test$statistic, 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`,
+el qual és relativament alt, suggerint una desviació significativa de la
+normalitat. Aquesta conclusió és coherent amb el gràfic Q-Q, on es pot observar
+una desviació notable dels punts respecte a la línia diagonal, especialment en
+les cues de la distribució. Tot i això, com que tenim un nombre d'observacions
+gran (n > 30), l'ANOVA és robusta davant la violació del supòsit de normalitat
+gràcies al Teorema del Límit Central.
+
+### Homocedasticitat dels residus
+
+El gràfic “Residuals vs Fitted” proporciona informació sobre la homocedasticitat
+dels residus.
+
+Mostreu, interpreteu aquest gràfic i verifiqueu amb una prova de contrast. Si no
+es compleix homocedasticitat, recorda que es recomana una ANOVA de Welch.
+L'ANOVA de Welch no assumeix la igualtat de variàncies i utilitza una correcció
+en els graus de llibertat per calcular el valor F i el valor p. Confirma amb la
+prova de contrast d'igualtat de variàncies de Levene.
+
+**Resposta:**
+
+El gràfic "Residuals vs Fitted", el valor ajustat d'una observació és, en
+l'ANOVA d'un factor, la mitjana del grup al qual correspon l'observació. Per
+tant, per a totes les observacions que corresponen al nivell i, el valor ajustat
+és la mitjana del grup i. En aquest tipus de gràfic de residus apareixeran tires
+verticals de punts, una tira per cada nivell. Si la variància és constant,
+l'extensió vertical de les tires serà aproximadament la mateixa. Si la variància
+no és constant, apareixerà un patró en la dispersió vertical dels residus. És a
+dir, els nivells de tractament mostraran una disposició dels residus amb
+diferent dispersió vertical.
+
+En aquest cas, el gràfic mostra clarament que les tires de punts tenen
+diferents extensions verticals, indicant que la variància no és constant entre
+els diferents tipus d'entrenament. Aquesta observació suggereix que el supòsit
+d'homoscedasticitat no es compleix, ja que la línia vermella no és horitzontal.
+
+```{r residuals-vs-fitted, attr.source=".numberLines"}
+# Prova d'homogeneïtat de variàncies mitjançant el test de Bartlett
+bartlett_test <- bartlett.test(
+  Calories_Burned ~ Workout_Type,
+  data = fin_df
+)
+bartlett_test
+```
+
+El valor de p de la prova de Bartlett és `r format(round(bartlett_test$p.value, 4))`,
+que és menor que 0.05, per tant rebutgem la hipòtesi nul·la i assumim que les
+variàncies no són iguals. Aquesta conclusió és coherent amb l'observació feta en el
+gràfic "Residuals vs Fitted".
+
+Per confirmar aquesta observació, realitzem la prova de Levene.
+
+```{r levene-test, attr.source=".numberLines"}
+levene_test <- leveneTest(
+  Calories_Burned ~ Workout_Type,
+  data = fin_df
+)
+levene_test
+```
+
+`Df` és el nombre de grups menys 1 per al factor i el nombre total d'observacions
+menys el nombre de grups per als residus. El valor de p és $< 2.2e-16$, que és
+menor que 0.05, per tant rebutgem la hipòtesi nul·la i assumim que les
+variàncies no són iguals. Per tant, realitzem la prova T2 de Tamhane per a les
+comparacions múltiples.
+
+`F` és l'estadístic de la prova de Levene, que mesura la variabilitat entre els
+grups en comparació amb la variabilitat dins dels grups. Un valor alt de F
+indica que hi ha diferències significatives en les variàncies entre els grups,
+mentre que un valor proper a 1 indica que les variàncies són similars. En aquest
+cas, el valor de F és `r format(round(levene_test$"F value"[1], 2), nsmall = 2, scientific = FALSE, big.mark = ".", decimal.mark = ",")`,
+el qual és relativament alt, suggerint que hi ha diferències significatives en
+les variàncies entre els diferents tipus d'entrenament.
+
+```{r post-hoc-tamhane, attr.source=".numberLines"}
+# Prova post hoc T2 de Tamhane
+post_hoc_tamhane <- pairwise.t.test(
+  fin_df$Calories_Burned,
+  fin_df$Workout_Type,
+  p.adjust.method = "none",
+  pool.sd = FALSE # variàncies no iguals
+)
+post_hoc_tamhane
+```
+
+Tots els valors de p són menors que 0.05, per tant hi ha diferències
+significatives entre tots els parells de tipus d'entrenament en termes de
+calories cremades.
+
+# ANOVA multifactorial
+
+Ara analitzarem si les calories cremades depenen del tipus d'entrenament
+(`Workout_Type`), de tenir un índex de massa corporal saludable i si existeix
+interacció entre aquests dos factors.
+
+En primer lloc es crearà una variable binària anomenada `BMI_bin` que indiqui un
+índex de massa corporal alt si és major a 25 i normal/baix si és igual o menor a
+25.
+
+També analitzarem si hi ha interacció entre aquests dos factors. Si no hi ha
+interacció entre els factors, cal crear un model sense interacció.
+
+Seguiu els passos que s'indiquen a continuació.
+
+## Crea la variable `BIM` per a majors de 25 igual a `Alt`
+
+**Resposta:**
+
+```{r create-bmi-bin, attr.source=".numberLines"}
+# Crear la variable binària BMI_bin
+fin_df$BMI_bin <- ifelse(fin_df$BMI > 25, "Alt", "Normal/Baix")
+fin_df$BMI_bin <- factor(fin_df$BMI_bin, levels = c("Normal/Baix", "Alt"))
+# Diagrama de violí del BMI segons BMI_bin
+ggplot(fin_df, aes(x = BMI_bin, y = BMI, fill = BMI_bin)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, position = position_dodge(0.9)) +
+  labs(
+    title = "Diagrama de violí del BMI segons el tipus BMI_bin",
+    x = "Categoria de BMI",
+    y = "Índex de Massa Corporal (BMI)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Anàlisi visual dels efectes principals i possibles interaccions
+
+Dibuixeu un gràfic que permeti avaluar si hi ha interacció entre els dos
+factors. Feu un gràfic que mostri les calories mitjanes cremades segons tipus
+d'entrenament diferenciant entre aquelles persones amb un índex de massa
+corporal alt i les que tenen un índex de massa corporal normal o baix.
+
+**Resposta:**
+
+En l'eix X apareixen els diferents tipus d'entrenament, mentre que l'eix Y
+mostra les calories cremades mitjanes per cada combinació de tipus d'entrenament
+i categoria de BMI (Índex de Massa Corporal). No s'aprecia cap intersecció
+clara entre les línies, i més o menys tenen les mateixes pendents, la qual cosa
+suggeriria que no hi ha interacció entre els dos factors.
+
+```{r interaction-plot, attr.source=".numberLines"}
+# Gràfic d'interacció entre Workout_Type i BMI_bin
+interaction.plot(
+  x.factor = fin_df$Workout_Type,
+  trace.factor = fin_df$BMI_bin,
+  response = fin_df$Calories_Burned,
+  fun = mean,
+  type = "b",
+  grid = TRUE,
+  col.grid = "lightgray",
+  col = c("blue", "red"),
+  bg = "transparent",
+  pch = c(19, 17),
+  xlab = "Tipus d'entrenament",
+  ylab = "Calories cremades mitjanes",
+  legend = TRUE,
+  main = "Gràfic d'interacció entre Workout_Type i BMI_bin"
+)
+```
+
+Si canviem l'ordre dels factors, tampoc es pot observar cap intersecció clara
+entre les línies, les línies són més o menys paral·leles. Això reforça la idea
+que no hi ha interacció significativa entre els dos factors.
+
+```{r interaction-plot-reversed, attr.source=".numberLines"}
+interaction.plot(
+  x.factor = fin_df$BMI_bin,
+  trace.factor = fin_df$Workout_Type,
+  response = fin_df$Calories_Burned,
+  fun = mean,
+  type = "b",
+  grid = TRUE,
+  col.grid = "lightgray",
+  col = c("blue", "red", "darkgreen", "purple"),
+  bg = "transparent",
+  pch = c(19, 17, 15, 18),
+  xlab = "Tipus d'índex de massa corporal",
+  ylab = "Calories cremades mitjanes",
+  legend = TRUE,
+  main = "Gràfic d'interacció entre Workout_Type i BMI_bin"
+)
+```
+
+## Hipòtesi nul·la i alternativa
+
+Escriviu les hipòtesis.
+
+**Resposta:**
+
+En no haver-hi interacció entre els factors, s'escriuen les hipòtesis dels
+efectes principals de cada factor:
+
+1. Tipus d'entrenament (`Workout_Type`):
+  - Hipòtesi nul·la (H~0A~): No hi ha diferències en la mitjana de calories
+    cremades segons el tipus d'entrenament.
+  - Hipòtesi alternativa (H~1A~): En almenys dos grups la mitjana de calories
+    cremades són diferents segons el tipus d'entrenament.
+2. Categoria de BMI (`BMI_bin`):
+  - Hipòtesi nul·la (H~0B~): La mitjana de calories cremades són iguals per al
+    grup "Alt" i "Normal/Baix".
+  - Hipòtesi alternativa (H~1B~): La mitjana de calories cremades són diferents
+    per al grup "Alt" i "Normal/Baix".
+
+## Càlcul del model
+
+**Resposta:**
+
+```{r anova-multifactorial, attr.source=".numberLines"}
+# Càlcul de l'ANOVA multifactorial sense interacció
+anova_multifactorial <- aov(
+  Calories_Burned ~ Workout_Type + BMI_bin,
+  data = fin_df
+)
+# Resum de l'ANOVA multifactorial
+summary(anova_multifactorial)
+```
+
+## Adequació del model
+
+Comproveu els supòsits gràficament i amb les proves estadístiques de l'apartat
+anterior.
+
+**Resposta:**
+
+```{r adequacio-model-anova-multifactorial, attr.source=".numberLines"}
+# Gràfics de diagnòstic del model ANOVA multifactorial
+par(mfrow = c(1, 2))
+plot(anova_multifactorial, which = 1, main = "Model Fit")
+plot(anova_multifactorial, which = 2, main = "Q-Q Plot")
+par(mfrow = c(1, 1))
+```
+
+Els gràfics són molt similars als gràfics de l'ANOVA d'un factor, ja que el
+factor tipus d'index de massa corporal no és significatiu, valor p > 0.05.
+
+## Interpretació dels resultats
+
+El resultat de l'ANOVA amb dos factors i el resultat de l'ANOVA amb un factor,
+és el mateix quan s'afegeix un factor a l'ANOVA d'un factor, si aquest no és
+significatiu i no hi ha interacció entre els factors a la fórmula de l'ANOVA.
+
+# Conclusions
+
+```{r conclusions, echo=FALSE}
+kable(
+  data.frame(
+    Apartat = c(
+      "Contrast d'hipòtesi",
+      "Regressió lineal múltiple",
+      "Regressió logística",
+      "ANOVA d'un factor",
+      "ANOVA multifactorial"
+    ),
+    Estadístic = c(
+      "p-valor",
+      "R² ajustat, valor p dels coeficients, correlació, VIF, normalitat i homoscedasticitat",
+      "AUC, Estimacions dels coeficients, valor p dels coeficients, matriu de confusió, sensibilitat i especificitat, normalitat i homoscedasticitat",
+      "F value, Sum Sq, Mean Sq, valor p, efectes dels nivells del factor, normalitat i homoscedasticitat",
+      "Interacció entre factors, F value, Sum Sq, Mean Sq, valor p, normalitat i homoscedasticitat"
+    ),
+    Resultat = c(
+      "Amb variances desconegudes i diferents, apliquem el test de Welch: p = 0.441 (p > 0.025), no hi ha prou evidència per acceptar que els homes cremen més calories que les dones als entrenaments amb un nivell de conviança del 97.25%.",
+      "El valor d'R² és molt alt (96.35%) i explica gairebé tota la variabilitat de Calories_Burned, les variables significatives són (p < 0.05): Session_Duration_hours, Experience_Level, Workout_Frequency_days_week, Workout_Type i Height_m. No hi ha problemes de multicol·linealitat entre les variables explicatives quantitatives (vif < 5, matriu de correlació < 0.8). Els residus no són normals i hi ha heteroscedasticitat, no obstant això, la inferència pot ser robusta gràcies al nombre elevat de mostres, segons el teorema del límit central.",
+      "L'AUC és excepcional (AUC > 0.9), indicant una bona capacitat de discriminació del model. Les variables significatives (p < 0.05) són: Session_Duration_hours, Workout_Frequency_days_week, Weight_kg, Workout_Type i Calories_Burned. La matriu de confusió mostra una precisió alta, amb sensibilitat i especificitat també altes. Els residus no són normals i hi ha heteroscedasticitat, no obstant això, la inferència pot ser robusta gràcies al nombre elevat de mostres, segons el teorema del límit central.",
+      "Hi ha diferències significatives en les calories cremades segons el tipus d'entrenament (p < 0.05). Els efectes dels nivells del factor mostren com cada tipus d'entrenament afecta les calories cremades. Els residus no són normals i hi ha heteroscedasticitat, no obstant això, la inferència pot ser robusta gràcies al nombre elevat de mostres, segons el teorema del límit central.",
+      "No hi ha interacció significativa entre els factors. Hi ha diferències significatives en les calories cremades segons el tipus d'entrenament (p < 0.05), però no segons la categoria de BMI (p > 0.05). Els residus no són normals i hi ha heteroscedasticitat, no obstant això, la inferència pot ser robusta gràcies al nombre elevat de mostres, segons el teorema del límit central."
+    )
+  ),
+  caption = "Resum de les conclusions dels diferents apartats de l'activitat."
+) |>
+  kable_styling(
+    "striped",
+    latex_options = c("striped", "scale_down", "repeat_header"),
+    position = "center",
+    full_width = FALSE
+  ) |>
+  # especifica la mida de les columnes
+  column_spec(1, width = "2cm") |>
+  column_spec(2, width = "3cm") |>
+  column_spec(3, width = "10cm")
+```

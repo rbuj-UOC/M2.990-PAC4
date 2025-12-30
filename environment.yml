@@ -1,0 +1,10 @@
+name: M2.990-PAC4
+channels:
+  - r
+  - conda-forge
+  - defaults
+dependencies:
+  - r-base=4.5.2
+  - r-knitr
+  - r-languageserver
+  - r-rmarkdown
