@@ -1,3 +1,6 @@
+
+[![CI/CD with Jekyll](https://github.com/rbuj-UOC/M2.990-PAC4/actions/workflows/render-rmarkdown.yaml/badge.svg)](https://github.com/rbuj-UOC/M2.990-PAC4/actions/workflows/render-rmarkdown.yaml)
+
 # Fourth Assignment
 
 ## Install Required Libraries
