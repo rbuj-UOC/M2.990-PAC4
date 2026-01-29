@@ -826,7 +826,18 @@ les calories cremades segons el tipus d'entrenament.
 ```{r efectes-nivell-factor, attr.source=".numberLines"}
 # Estimació dels efectes dels nivells del factor Workout_Type
 effects <- model.tables(anova_model, "means")$tables$Workout_Type
-effects
+
+# Mitjana global
+mitjana_global <- mean(fin_df$Calories_Burned, na.rm = TRUE)
+mitjana_global
+
+# Diferència entre la mitjana de cada grup i la mitjana global
+efectes_df <- data.frame(
+  "Mitjana del grup" = as.numeric(effects),
+  "Diferència respecte mitjana global" = as.numeric(effects) - mitjana_global,
+  row.names = names(effects)
+)
+efectes_df
 ```
 
 ## Interpretació dels resultats
