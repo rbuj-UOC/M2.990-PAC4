@@ -11,8 +11,6 @@ keywords:
   - "ANOVA"
 output:
   pdf_document:
-    includes:
-      in_header: header.tex
     toc: true
     toc_depth: 2
     number_sections: true
@@ -22,6 +20,8 @@ output:
     toc_depth: 2
     number_sections: true
     highlight: tango
+header-includes:
+  - \usepackage[catalan]{babel}
 toc-title: "Taula de continguts"
 ---
 
